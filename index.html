@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sky Runner — Best Flight Game</title>
+<!--
+  Sky Runner — a pure offline flight game for the make.fun bounty
+  "Make the best flight game" (best-flight-game-20261126-0057).
+
+  How this file fits together (a map for the curious reader):
+  - index.html  : this file. The page shell, the canvas, the HUD and the
+                  start / crash / win overlays. It loads style.css and
+                  game.js with plain <script> tags on purpose.
+  - style.css   : every visual rule for the page chrome (HUD, overlays,
+                  buttons, responsive layout). No framework, no fonts
+                  fetched from the network.
+  - game.js     : the whole simulation. A hand-rolled perspective
+                  projector turns a 3D world (rolling terrain, sea,
+                  mountains, a little city, drifting clouds, glowing
+                  checkpoint rings) into 2D canvas drawing. The plane
+                  flies with real pitch / roll / yaw, throttle and boost,
+                  and the game ends when the plane kisses the terrain.
+  - dossier.md  : a plain-language description of the game, the controls
+                  and how to run it offline (double-click index.html).
+  - README.md   : the project readme with the make.fun badges.
+
+  Offline promise: there is no fetch(), no ES module import, no CDN
+  script, no web font and no external image anywhere in this project.
+  Opening index.html straight from the file system (file://) works,
+  because the browser only needs the three local files next to it.
+-->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrap">
+  <!-- The single canvas the whole 3D world is painted onto. -->
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <!-- ============ HUD (heads-up display, always on screen) ============ -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div class="hud-box" id="hud-score">
+        <span class="hud-label">SCORE</span>
+        <span class="hud-value" id="score">0</span>
+      </div>
+      <div class="hud-box" id="hud-rings">
+        <span class="hud-label">RINGS</span>
+        <span class="hud-value"><span id="rings">0</span> / <span id="rings-total">12</span></span>
+      </div>
+      <div class="hud-box" id="hud-timer">
+        <span class="hud-label">TIME</span>
+        <span class="hud-value" id="timer">0:00</span>
+      </div>
+    </div>
+    <div id="compass-wrap">
+      <div id="compass-strip"></div>
+      <div id="compass-needle">▲</div>
+      <div id="compass-heading">N 000°</div>
+    </div>
+    <div id="hud-bottom">
+      <div class="hud-box">
+        <span class="hud-label">ALTITUDE</span>
+        <span class="hud-value"><span id="altitude">0</span> m</span>
+      </div>
+      <div class="hud-box">
+        <span class="hud-label">SPEED</span>
+        <span class="hud-value"><span id="speed">0</span> km/h</span>
+      </div>
+      <div class="hud-box">
+        <span class="hud-label">THROTTLE</span>
+        <div id="throttle-bar"><div id="throttle-fill"></div></div>
+      </div>
+      <div class="hud-box">
+        <span class="hud-label">CAMERA</span>
+        <span class="hud-value" id="camera-mode">CHASE</span>
+      </div>
+    </div>
+    <div id="message"></div>
+    <div id="boost-indicator">BOOST</div>
+  </div>
+
+  <!-- ============ Start screen: title, story, controls ============ -->
+  <div id="start-screen" class="overlay">
+    <h1>SKY RUNNER</h1>
+    <p class="tagline">Fly the canyon. Thread every ring. Don't kiss the mountain.</p>
+    <p class="story">
+      You are the test pilot of a little stunt plane over a wild island:
+      snowy peaks to the north, open sea to the south, and a sleepy
+      harbour town in between. Twelve glowing rings hang in the sky along
+      the course. Fly through each one to score — the faster and cleaner
+      the run, the bigger the bonus. Touch rock, water or a rooftop and
+      the run is over. Beat the clock, beat your own best score.
+    </p>
+    <div class="controls-grid">
+      <div class="control-row"><span class="key">W / S</span> or <span class="key">↑ / ↓</span><span class="desc">Pitch nose down / up</span></div>
+      <div class="control-row"><span class="key">A / D</span> or <span class="key">← / →</span><span class="desc">Roll and turn (bank left / right)</span></div>
+      <div class="control-row"><span class="key">Shift</span> / <span class="key">Ctrl</span><span class="desc">Throttle up / down</span></div>
+      <div class="control-row"><span class="key">Space</span><span class="desc">Boost (hold, drains the boost meter)</span></div>
+      <div class="control-row"><span class="key">C</span><span class="desc">Switch camera: chase view / cockpit view</span></div>
+      <div class="control-row"><span class="key">Mouse</span><span class="desc">Move to look around (free-look in both cameras)</span></div>
+      <div class="control-row"><span class="key">P</span><span class="desc">Pause / resume the flight</span></div>
+      <div class="control-row"><span class="key">R</span><span class="desc">Restart after a crash (or any time)</span></div>
+      <div class="control-row"><span class="key">M</span><span class="desc">Mute / unmute the engine hum</span></div>
+    </div>
+    <p class="hint">
+      Tip: rings are easier to thread if you line up early and keep the
+      throttle near 70%. Boost is for the long straight over the sea —
+      never boost straight at a mountain.
+    </p>
+    <button id="start-button">TAKE OFF</button>
+    <p class="tiny">Runs fully offline — no server, no account, no download. Best on desktop.</p>
+  </div>
+
+  <!-- ============ Crash screen ============ -->
+  <div id="crash-screen" class="overlay hidden">
+    <h1 class="crash-title">CRASHED</h1>
+    <p class="crash-cause" id="crash-cause">You flew into the terrain.</p>
+    <p class="final-stats">
+      Score <strong id="crash-score">0</strong> &nbsp;·&nbsp;
+      Rings <strong id="crash-rings">0 / 12</strong> &nbsp;·&nbsp;
+      Time <strong id="crash-time">0:00</strong>
+    </p>
+    <p class="best-line">Best score so far: <strong id="crash-best">0</strong></p>
+    <button id="retry-button">FLY AGAIN (R)</button>
+  </div>
+
+  <!-- ============ Win screen (all rings collected) ============ -->
+  <div id="win-screen" class="overlay hidden">
+    <h1 class="win-title">COURSE CLEAR!</h1>
+    <p class="story">Every ring threaded. The harbour crowd is cheering — or at
+      least the seagulls are. That was a clean run, pilot.</p>
+    <p class="final-stats">
+      Score <strong id="win-score">0</strong> &nbsp;·&nbsp;
+      Time <strong id="win-time">0:00</strong>
+    </p>
+    <p class="best-line">Best score so far: <strong id="win-best">0</strong></p>
+    <button id="again-button">FLY IT AGAIN (R)</button>
+  </div>
+
+  <!-- ============ Pause veil ============ -->
+  <div id="pause-screen" class="overlay hidden">
+    <h1>PAUSED</h1>
+    <p class="story">Press P to keep flying.</p>
+  </div>
+</div>
+
+<!-- Plain classic script on purpose: no type="module", no imports,
+     so the file works from file:// with zero network. -->
+<script src="game.js"></script>
+</body>
+</html>
